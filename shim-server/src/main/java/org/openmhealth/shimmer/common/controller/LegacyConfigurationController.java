@@ -21,6 +21,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -89,9 +90,14 @@ public class LegacyConfigurationController {
     @RequestMapping(value = "shim/{shim}/config", method = {GET, PUT, POST}, produces = APPLICATION_JSON_VALUE)
     public List<String> updateShimConfig(
             @PathVariable("shim") String shimKey,
+            @RequestHeader("X-API-AUTH") String apiKey,
             @RequestParam("clientId") String clientId,
             @RequestParam("clientSecret") String clientSecret)
             throws ShimException {
+
+        if (apiKey != "j3wXYkijDZmCYFeGycEawcigPDs2EUpBUQNbZL7XXCYoriE2xYw2QHRgQroXyMud") {
+            throw new ShimException("Invalid API KEY");
+        }
 
         ApplicationAccessParameters parameters = applicationAccessParametersRepo.findByShimKey(shimKey);
 

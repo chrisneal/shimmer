@@ -189,8 +189,8 @@ public class LegacyAuthorizationController {
                 return null;
             }
 
-            String authorizationFailureUrl = System.getenv("AUTH_FAILURE_URL");;
-            String authorizationSuccessUrl = System.getenv("AUTH_SUCCESS_URL");;
+            String authorizationFailureUrl = System.getenv("AUTH_FAILURE_URL");
+            String authorizationSuccessUrl = System.getenv("AUTH_SUCCESS_URL");
 
             String authorizationStatusURL = (authorizationFailureUrl != ""?authorizationFailureUrl:shimServerProperties.getCallbackUrlBase() + AUTH_FAILURE_URL);
             if (response.getType().equals(AuthorizationResponse.Type.AUTHORIZED)) {
