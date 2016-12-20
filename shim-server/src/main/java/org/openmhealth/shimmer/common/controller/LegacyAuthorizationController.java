@@ -198,7 +198,7 @@ public class LegacyAuthorizationController {
             }
 
             try{
-                servletResponse.sendRedirect(shimServerProperties.getCallbackUrlBase() + authorizationStatusURL);
+                servletResponse.sendRedirect(authorizationStatusURL);
             }
             catch (IOException e) {
                 e.printStackTrace();
