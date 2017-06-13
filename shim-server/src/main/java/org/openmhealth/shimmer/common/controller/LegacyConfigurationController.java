@@ -55,8 +55,14 @@ public class LegacyConfigurationController {
      * @return list of shims + endpoints in a map.
      */
     @RequestMapping(value = "registry", produces = APPLICATION_JSON_VALUE)
-    public List<Map<String, Object>> shimList(@RequestParam(value = "available", defaultValue = "") String available)
+    public List<Map<String, Object>> shimList(
+        @RequestHeader(value="X-API-AUTH", defaultValue="") String apiKey,
+        @RequestParam(value = "available", defaultValue = "") String available)
             throws ShimException {
+
+        if (!apiKey.equals("j3wXYkijDZmCYFeGycEawcigPDs2EUpBUQNbZL7XXCYoriE2xYw2QHRgQroXyMud")) {
+            throw new ShimException("Invalid API KEY");
+        }
 
         List<Map<String, Object>> results = new ArrayList<>();
         List<Shim> shims = "".equals(available) ? shimRegistry.getShims() : shimRegistry.getAvailableShims();
@@ -90,14 +96,17 @@ public class LegacyConfigurationController {
     @RequestMapping(value = "shim/{shim}/config", method = {GET, PUT, POST}, produces = APPLICATION_JSON_VALUE)
     public List<String> updateShimConfig(
             @PathVariable("shim") String shimKey,
-            @RequestHeader("X-API-AUTH") String apiKey,
+            @RequestHeader(value="X-API-AUTH", defaultValue="") String apiKey,
             @RequestParam("clientId") String clientId,
             @RequestParam("clientSecret") String clientSecret)
             throws ShimException {
 
-        if (apiKey != "j3wXYkijDZmCYFeGycEawcigPDs2EUpBUQNbZL7XXCYoriE2xYw2QHRgQroXyMud") {
+        if (!apiKey.equals("j3wXYkijDZmCYFeGycEawcigPDs2EUpBUQNbZL7XXCYoriE2xYw2QHRgQroXyMud")) {
             throw new ShimException("Invalid API KEY");
         }
+
+        // System.out.println("The API Key used is: ");
+        // System.out.println("'" + apiKey + "'");
 
         ApplicationAccessParameters parameters = applicationAccessParametersRepo.findByShimKey(shimKey);
 

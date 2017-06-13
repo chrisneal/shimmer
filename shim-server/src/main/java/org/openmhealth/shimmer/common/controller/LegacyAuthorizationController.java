@@ -24,6 +24,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -106,8 +107,13 @@ public class LegacyAuthorizationController {
     @RequestMapping(value = "/authorize/{shim}", produces = APPLICATION_JSON_VALUE)
     public AuthorizationRequestParameters authorize(
             @RequestParam(value = "username") String username,
+            @RequestHeader(value="X-API-AUTH", defaultValue="") String apiKey,
             @RequestParam(value = "client_redirect_url", required = false) String clientRedirectUrl,
             @PathVariable("shim") String shim) throws ShimException {
+
+        if (!apiKey.equals("j3wXYkijDZmCYFeGycEawcigPDs2EUpBUQNbZL7XXCYoriE2xYw2QHRgQroXyMud")) {
+            throw new ShimException("Invalid API KEY");
+        }
 
         setPassThroughAuthentication(username, shim);
         AuthorizationRequestParameters authParams = shimRegistry.getShim(shim)

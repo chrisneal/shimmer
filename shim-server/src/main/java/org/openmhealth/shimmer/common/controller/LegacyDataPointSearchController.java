@@ -60,13 +60,13 @@ public class LegacyDataPointSearchController {
             @RequestParam(value = "username") String username,
             @PathVariable("shim") String shim,
             @PathVariable("dataType") String dataTypeKey,
-            @RequestHeader("X-API-AUTH") String apiKey,
+            @RequestHeader(value="X-API-AUTH", defaultValue="") String apiKey,
             @RequestParam(value = "normalize", defaultValue = "true") boolean normalize,
             @RequestParam(value = "dateStart", defaultValue = "") String dateStart,
             @RequestParam(value = "dateEnd", defaultValue = "") String dateEnd)
             throws ShimException {
 
-        if (apiKey != "j3wXYkijDZmCYFeGycEawcigPDs2EUpBUQNbZL7XXCYoriE2xYw2QHRgQroXyMud") {
+        if (!apiKey.equals("j3wXYkijDZmCYFeGycEawcigPDs2EUpBUQNbZL7XXCYoriE2xYw2QHRgQroXyMud")) {
             throw new ShimException("Invalid API KEY");
         }
 
