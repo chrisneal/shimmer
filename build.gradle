@@ -1,8 +1,8 @@
-// TODO when Grunt is called from Gradle, rethink this section
 subprojects {
     apply plugin: "java"
 
     repositories {
+        mavenLocal()
         jcenter()
     }
 
@@ -10,8 +10,8 @@ subprojects {
 
     ext {
         javaVersion = 1.8
-        shimmerVersion = "0.4.8"
-        omhSchemaSdkVersion = "1.0.5"
+        shimmerVersion = "0.6.0"
+        omhSchemaSdkVersion = "1.2.1"
     }
 
     sourceCompatibility = javaVersion
@@ -23,5 +23,5 @@ subprojects {
 }
 
 task wrapper(type: Wrapper) {
-    gradleVersion = "2.12"
+    gradleVersion = "4.1"
 }

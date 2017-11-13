@@ -1,10 +1,7 @@
 package org.openmhealth.shim.fitbit.mapper;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import org.openmhealth.schema.domain.omh.DataPoint;
-import org.openmhealth.schema.domain.omh.DurationUnit;
-import org.openmhealth.schema.domain.omh.DurationUnitValue;
-import org.openmhealth.schema.domain.omh.StepCount;
+import org.openmhealth.schema.domain.omh.*;
 import org.openmhealth.shim.common.mapper.DataPointMapperUnitTests;
 import org.testng.annotations.BeforeTest;
 import org.testng.annotations.Test;
@@ -47,23 +44,25 @@ public class FitbitStepCountDataPointMapperUnitTests extends DataPointMapperUnit
     @Test
     public void asDataPointsShouldReturnCorrectDataPointsWhenMultipleInResponse() {
 
-        List<DataPoint<StepCount>> dataPoints = mapper.asDataPoints(singletonList(responseNode));
+        List<DataPoint<StepCount2>> dataPoints = mapper.asDataPoints(singletonList(responseNode));
 
         assertThatDataPointMatches(dataPoints.get(0), 175, "2015-08-23");
         assertThatDataPointMatches(dataPoints.get(1), 2937, "2015-08-24");
     }
 
-    public void assertThatDataPointMatches(DataPoint<StepCount> dataPoint, long expectedStepCountValue,
+    public void assertThatDataPointMatches(DataPoint<StepCount2> dataPoint, long expectedStepCountValue,
             String expectedEffectiveDate) {
 
-        StepCount expectedStepCount = new StepCount.Builder(expectedStepCountValue)
-                .setEffectiveTimeFrame(ofStartDateTimeAndDuration(
+        StepCount2 expectedStepCount = new StepCount2.Builder(
+                expectedStepCountValue,
+                ofStartDateTimeAndDuration(
                         OffsetDateTime.of(LocalDate.parse(expectedEffectiveDate).atStartOfDay(), UTC),
-                        new DurationUnitValue(DurationUnit.DAY, 1)))
+                        new DurationUnitValue(DurationUnit.DAY, 1)
+                ))
                 .build();
 
         assertThat(dataPoint.getBody(), equalTo(expectedStepCount));
-        assertThat(dataPoint.getHeader().getBodySchemaId(), equalTo(StepCount.SCHEMA_ID));
+        assertThat(dataPoint.getHeader().getBodySchemaId(), equalTo(StepCount2.SCHEMA_ID));
         assertThat(dataPoint.getHeader().getAcquisitionProvenance().getAdditionalProperties().get("external_id"),
                 nullValue());
         assertThat(dataPoint.getHeader().getAcquisitionProvenance().getSourceName(),

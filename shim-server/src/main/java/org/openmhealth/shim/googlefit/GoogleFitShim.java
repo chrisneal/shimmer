@@ -1,5 +1,5 @@
 /*
- * Copyright 2015 Open mHealth
+ * Copyright 2017 Open mHealth
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -12,6 +12,7 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
+ *
  */
 
 package org.openmhealth.shim.googlefit;
@@ -21,7 +22,6 @@ import org.openmhealth.shim.*;
 import org.openmhealth.shim.googlefit.mapper.*;
 import org.slf4j.Logger;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
@@ -46,10 +46,8 @@ import java.net.URI;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
-import java.util.Arrays;
-import java.util.List;
+import java.util.Map;
 
-import static java.util.Collections.singletonList;
 import static org.slf4j.LoggerFactory.getLogger;
 import static org.springframework.http.ResponseEntity.ok;
 
@@ -61,97 +59,93 @@ import static org.springframework.http.ResponseEntity.ok;
  * @author Chris Schaefbauer
  */
 @Component
-@ConfigurationProperties(prefix = "openmhealth.shim.googlefit")
-public class GoogleFitShim extends OAuth2ShimBase {
+public class GoogleFitShim extends OAuth2Shim {
 
     private static final Logger logger = getLogger(GoogleFitShim.class);
 
     public static final String SHIM_KEY = "googlefit";
-
     private static final String DATA_URL = "https://www.googleapis.com/fitness/v1/users/me/dataSources";
-
-    private static final String AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/auth";
-
-    private static final String TOKEN_URL = "https://accounts.google.com/o/oauth2/token";
-
-    public static final List<String> GOOGLE_FIT_SCOPES = Arrays.asList(
-            "https://www.googleapis.com/auth/userinfo.email",
-            "https://www.googleapis.com/auth/fitness.activity.read",
-            "https://www.googleapis.com/auth/fitness.body.read"
-    );
+    private static final String USER_AUTHORIZATION_URL = "https://accounts.google.com/o/oauth2/auth";
+    private static final String ACCESS_TOKEN_URL = "https://accounts.google.com/o/oauth2/token";
 
     @Autowired
-    public GoogleFitShim(ApplicationAccessParametersRepo applicationParametersRepo,
-            AuthorizationRequestParametersRepo authorizationRequestParametersRepo,
-            AccessParametersRepo accessParametersRepo,
-            ShimServerConfig shimServerConfig) {
-        super(applicationParametersRepo, authorizationRequestParametersRepo, accessParametersRepo, shimServerConfig);
-    }
+    private GoogleFitClientSettings clientSettings;
 
     @Override
     public String getLabel() {
+
         return "Google Fit";
     }
 
     @Override
     public String getShimKey() {
+
         return SHIM_KEY;
     }
 
     @Override
-    public String getBaseAuthorizeUrl() {
-        return AUTHORIZE_URL;
+    public String getUserAuthorizationUrl() {
+
+        return USER_AUTHORIZATION_URL;
     }
 
     @Override
-    public String getBaseTokenUrl() {
-        return TOKEN_URL;
+    public String getAccessTokenUrl() {
+
+        return ACCESS_TOKEN_URL;
     }
 
     @Override
-    public List<String> getScopes() {
-        return GOOGLE_FIT_SCOPES;
+    protected OAuth2ClientSettings getClientSettings() {
+
+        return clientSettings;
     }
 
     public AuthorizationCodeAccessTokenProvider getAuthorizationCodeAccessTokenProvider() {
+
         return new GoogleAuthorizationCodeAccessTokenProvider();
     }
 
     @Override
     public ShimDataType[] getShimDataTypes() {
+
         return new GoogleFitDataTypes[] {
-                GoogleFitDataTypes.ACTIVITY,
                 GoogleFitDataTypes.BODY_HEIGHT,
                 GoogleFitDataTypes.BODY_WEIGHT,
+                GoogleFitDataTypes.CALORIES_BURNED,
+                GoogleFitDataTypes.GEOPOSITION,
                 GoogleFitDataTypes.HEART_RATE,
-                GoogleFitDataTypes.STEP_COUNT,
-                GoogleFitDataTypes.CALORIES_BURNED};
+                GoogleFitDataTypes.PHYSICAL_ACTIVITY,
+                GoogleFitDataTypes.SPEED,
+                GoogleFitDataTypes.STEP_COUNT
+        };
     }
 
     public enum GoogleFitDataTypes implements ShimDataType {
 
-        ACTIVITY("derived:com.google.activity.segment:com.google.android.gms:merge_activity_segments"),
         BODY_HEIGHT("derived:com.google.height:com.google.android.gms:merge_height"),
         BODY_WEIGHT("derived:com.google.weight:com.google.android.gms:merge_weight"),
+        CALORIES_BURNED("derived:com.google.calories.expended:com.google.android.gms:merge_calories_expended"),
+        GEOPOSITION("derived:com.google.location.sample:com.google.android.gms:merge_location_samples"),
         HEART_RATE("derived:com.google.heart_rate.bpm:com.google.android.gms:merge_heart_rate_bpm"),
-        STEP_COUNT("derived:com.google.step_count.delta:com.google.android.gms:merge_step_deltas"),
-        CALORIES_BURNED("derived:com.google.calories.expended:com.google.android.gms:merge_calories_expended");
+        PHYSICAL_ACTIVITY("derived:com.google.activity.segment:com.google.android.gms:merge_activity_segments"),
+        SPEED("derived:com.google.speed:com.google.android.gms:merge_speed"),
+        STEP_COUNT("derived:com.google.step_count.delta:com.google.android.gms:merge_step_deltas");
 
         private final String streamId;
 
         GoogleFitDataTypes(String streamId) {
             this.streamId = streamId;
-
         }
 
         public String getStreamId() {
             return streamId;
         }
-
     }
 
     protected ResponseEntity<ShimDataResponse> getData(OAuth2RestOperations restTemplate,
             ShimDataRequest shimDataRequest) throws ShimException {
+
         final GoogleFitDataTypes googleFitDataType;
         try {
             googleFitDataType = GoogleFitDataTypes.valueOf(
@@ -163,31 +157,34 @@ public class GoogleFitShim extends OAuth2ShimBase {
                     + " in shimDataRequest, cannot retrieve data.");
         }
 
-
         OffsetDateTime todayInUTC =
                 LocalDate.now().atStartOfDay().atOffset(ZoneOffset.UTC);
 
         OffsetDateTime startDateInUTC = shimDataRequest.getStartDateTime() == null ?
+
                 todayInUTC.minusDays(1) : shimDataRequest.getStartDateTime();
-        long startTimeNanos = (startDateInUTC.toEpochSecond() * 1000000000) + startDateInUTC.toInstant().getNano();
+        long startTimeNanos = (startDateInUTC.toEpochSecond() * 1_000_000_000) + startDateInUTC.toInstant().getNano();
 
         OffsetDateTime endDateInUTC = shimDataRequest.getEndDateTime() == null ?
                 todayInUTC.plusDays(1) :
                 shimDataRequest.getEndDateTime().plusDays(1);   // We are inclusive of the last day, so add 1 day to get
+
         // the end of day on the last day, which captures the
         // entire last day
-        long endTimeNanos = (endDateInUTC.toEpochSecond() * 1000000000) + endDateInUTC.toInstant().getNano();
+        long endTimeNanos = (endDateInUTC.toEpochSecond() * 1_000_000_000) + endDateInUTC.toInstant().getNano();
 
 
-        UriComponentsBuilder uriBuilder = UriComponentsBuilder.fromUriString(DATA_URL)
-                .pathSegment(googleFitDataType.getStreamId(), "datasets", "{startDate}-{endDate}");
         // TODO: Add limits back into the request once Google has fixed the 'limit' query parameter and paging
-
-        URI uriRequest = uriBuilder.buildAndExpand(startTimeNanos, endTimeNanos).encode().toUri();
+        URI uri = UriComponentsBuilder
+                .fromUriString(DATA_URL)
+                .pathSegment(googleFitDataType.getStreamId(), "datasets", "{startDate}-{endDate}")
+                .buildAndExpand(startTimeNanos, endTimeNanos)
+                .encode()
+                .toUri();
 
         ResponseEntity<JsonNode> responseEntity;
         try {
-            responseEntity = restTemplate.getForEntity(uriRequest, JsonNode.class);
+            responseEntity = restTemplate.getForEntity(uri, JsonNode.class);
         }
         catch (HttpClientErrorException | HttpServerErrorException e) {
             // TODO figure out how to handle this
@@ -196,43 +193,54 @@ public class GoogleFitShim extends OAuth2ShimBase {
         }
 
         if (shimDataRequest.getNormalize()) {
-            GoogleFitDataPointMapper<?> dataPointMapper;
-            switch ( googleFitDataType ) {
-                case BODY_WEIGHT:
-                    dataPointMapper = new GoogleFitBodyWeightDataPointMapper();
-                    break;
-                case BODY_HEIGHT:
-                    dataPointMapper = new GoogleFitBodyHeightDataPointMapper();
-                    break;
-                case ACTIVITY:
-                    dataPointMapper = new GoogleFitPhysicalActivityDataPointMapper();
-                    break;
-                case STEP_COUNT:
-                    dataPointMapper = new GoogleFitStepCountDataPointMapper();
-                    break;
-                case HEART_RATE:
-                    dataPointMapper = new GoogleFitHeartRateDataPointMapper();
-                    break;
-                case CALORIES_BURNED:
-                    dataPointMapper = new GoogleFitCaloriesBurnedDataPointMapper();
-                    break;
-                default:
-                    throw new UnsupportedOperationException();
-            }
+            GoogleFitDataPointMapper<?> dataPointMapper = getDataPointMapper(googleFitDataType);
 
-            return ok().body(ShimDataResponse.result(GoogleFitShim.SHIM_KEY, dataPointMapper.asDataPoints(
-                    singletonList(responseEntity.getBody()))));
+            return ok().body(ShimDataResponse
+                    .result(GoogleFitShim.SHIM_KEY, dataPointMapper.asDataPoints(responseEntity.getBody())));
         }
         else {
+            return ok().body(ShimDataResponse
+                    .result(GoogleFitShim.SHIM_KEY, responseEntity.getBody()));
+        }
+    }
 
-            return ok().body(ShimDataResponse.result(GoogleFitShim.SHIM_KEY, responseEntity.getBody()));
+    private GoogleFitDataPointMapper<?> getDataPointMapper(GoogleFitDataTypes googleFitDataType) {
+
+        switch (googleFitDataType) {
+            case BODY_HEIGHT:
+                return new GoogleFitBodyHeightDataPointMapper();
+
+            case BODY_WEIGHT:
+                return new GoogleFitBodyWeightDataPointMapper();
+
+            case CALORIES_BURNED:
+                return new GoogleFitCaloriesBurnedDataPointMapper();
+
+            case GEOPOSITION:
+                return new GoogleFitGeopositionDataPointMapper();
+
+            case HEART_RATE:
+                return new GoogleFitHeartRateDataPointMapper();
+
+            case PHYSICAL_ACTIVITY:
+                return new GoogleFitPhysicalActivityDataPointMapper();
+
+            case SPEED:
+                return new GoogleFitSpeedDataPointMapper();
+
+            case STEP_COUNT:
+                return new GoogleFitStepCountDataPointMapper();
+
+            default:
+                throw new UnsupportedOperationException();
         }
     }
 
     @Override
-    protected String getAuthorizationUrl(UserRedirectRequiredException exception) {
+    protected String getAuthorizationUrl(UserRedirectRequiredException exception, Map<String, String> addlParameters) {
+
         final OAuth2ProtectedResourceDetails resource = getResource();
-        
+
         UriComponentsBuilder uriBuilder = UriComponentsBuilder
                 .fromUriString(exception.getRedirectUri())
                 .queryParam("state", exception.getStateKey())
@@ -241,7 +249,7 @@ public class GoogleFitShim extends OAuth2ShimBase {
                 .queryParam("access_type", "offline")
                 .queryParam("approval_prompt", "force")
                 .queryParam("scope", StringUtils.collectionToDelimitedString(resource.getScope(), " "))
-                .queryParam("redirect_uri", getCallbackUrl());
+                .queryParam("redirect_uri", getDefaultRedirectUrl());
 
         return uriBuilder.build().encode().toUriString();
     }
@@ -252,11 +260,13 @@ public class GoogleFitShim extends OAuth2ShimBase {
     public class GoogleAuthorizationCodeAccessTokenProvider extends AuthorizationCodeAccessTokenProvider {
 
         public GoogleAuthorizationCodeAccessTokenProvider() {
+
             this.setTokenRequestEnhancer(new GoogleTokenRequestEnhancer());
         }
 
         @Override
         protected HttpMethod getHttpMethod() {
+
             return HttpMethod.POST;
         }
 
@@ -266,6 +276,7 @@ public class GoogleFitShim extends OAuth2ShimBase {
                 OAuth2RefreshToken refreshToken, AccessTokenRequest request)
                 throws UserRedirectRequiredException,
                 OAuth2AccessDeniedException {
+
             OAuth2AccessToken accessToken = super.refreshAccessToken(resource, refreshToken, request);
             // Google does not replace refresh tokens, so we need to hold on to the existing refresh token...
             if (accessToken.getRefreshToken() == null) {
@@ -285,10 +296,11 @@ public class GoogleFitShim extends OAuth2ShimBase {
         public void enhance(AccessTokenRequest request,
                 OAuth2ProtectedResourceDetails resource,
                 MultiValueMap<String, String> form, HttpHeaders headers) {
+
             form.set("client_id", resource.getClientId());
             form.set("client_secret", resource.getClientSecret());
             if (request.getStateKey() != null) {
-                form.set("redirect_uri", getCallbackUrl());
+                form.set("redirect_uri", getDefaultRedirectUrl());
             }
         }
     }

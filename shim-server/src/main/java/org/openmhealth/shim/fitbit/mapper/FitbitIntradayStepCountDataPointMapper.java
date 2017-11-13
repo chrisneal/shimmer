@@ -17,29 +17,28 @@
 package org.openmhealth.shim.fitbit.mapper;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import org.openmhealth.schema.domain.omh.*;
+import org.openmhealth.schema.domain.omh.DataPoint;
+import org.openmhealth.schema.domain.omh.StepCount2;
+import org.openmhealth.schema.domain.omh.TimeFrame;
 
 import java.math.BigDecimal;
-import java.time.LocalDate;
-import java.time.LocalTime;
 import java.util.Optional;
 
-import static java.time.ZoneOffset.UTC;
-import static org.openmhealth.schema.domain.omh.DurationUnit.MINUTE;
-import static org.openmhealth.schema.domain.omh.TimeInterval.ofStartDateTimeAndDuration;
-import static org.openmhealth.shim.common.mapper.JsonNodeMappingSupport.asOptionalString;
 import static org.openmhealth.shim.common.mapper.JsonNodeMappingSupport.asRequiredBigDecimal;
 
 
 /**
  * A mapper that translates responses from the Fitbit Resource API <code>activities/steps</code> endpoint into {@link
- * StepCount} data points. This mapper assumes one minute granularity, i.e. that the request specified a
- * <code>detail-level</code> of <code>1min</code>.
+ * StepCount2} data points.
  *
  * @author Chris Schaefbauer
  * @see <a href="https://dev.fitbit.com/docs/activity/#get-activity-intraday-time-series">API documentation</a>
  */
-public class FitbitIntradayStepCountDataPointMapper extends FitbitIntradayDataPointMapper<StepCount> {
+public class FitbitIntradayStepCountDataPointMapper extends FitbitIntradayDataPointMapper<StepCount2> {
+
+    public FitbitIntradayStepCountDataPointMapper(Integer intradayDataGranularityInMinutes) {
+        super(intradayDataGranularityInMinutes);
+    }
 
     @Override
     protected String getListNodeName() {
@@ -47,12 +46,12 @@ public class FitbitIntradayStepCountDataPointMapper extends FitbitIntradayDataPo
     }
 
     @Override
-    public String getSummaryForDayNodeName() {
+    public String getDateSummaryNodeName() {
         return "activities-steps";
     }
 
     @Override
-    protected Optional<DataPoint<StepCount>> asDataPoint(JsonNode listEntryNode) {
+    protected Optional<DataPoint<StepCount2>> asDataPoint(JsonNode listEntryNode) {
 
         BigDecimal stepCountValue = asRequiredBigDecimal(listEntryNode, "value");
 
@@ -60,20 +59,11 @@ public class FitbitIntradayStepCountDataPointMapper extends FitbitIntradayDataPo
             return Optional.empty();
         }
 
-        StepCount.Builder stepCountBuilder = new StepCount.Builder(stepCountValue);
+        TimeFrame effectiveTimeFrame = getTimeSeriesEntryEffectiveTimeFrame(listEntryNode);
 
-        Optional<LocalDate> dateFromParent = getDateFromSummaryForDay();
+        StepCount2.Builder stepCountBuilder = new StepCount2.Builder(stepCountValue, effectiveTimeFrame);
 
-        if (dateFromParent.isPresent()) {
-
-            // Set the effective time frame only if we have access to the date and time
-            asOptionalString(listEntryNode, "time").ifPresent(time -> stepCountBuilder
-                    .setEffectiveTimeFrame(ofStartDateTimeAndDuration(
-                            dateFromParent.get().atTime(LocalTime.parse(time)).atOffset(UTC),
-                            new DurationUnitValue(MINUTE,
-                                    1)))); // We use 1 minute since the shim requests data at 1 minute granularity
-        }
-
-        return Optional.of(newDataPoint(stepCountBuilder.build(), null));
+        return Optional.of(
+                newDataPoint(stepCountBuilder.build(), getTimeSeriesEntryExternalId(listEntryNode)));
     }
 }

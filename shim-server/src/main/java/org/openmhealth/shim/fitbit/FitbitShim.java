@@ -1,5 +1,5 @@
 /*
- * Copyright 2015 Open mHealth
+ * Copyright 2017 Open mHealth
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -12,33 +12,27 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
+ *
  */
 
 package org.openmhealth.shim.fitbit;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
 import org.openmhealth.schema.domain.omh.DataPoint;
 import org.openmhealth.shim.*;
 import org.openmhealth.shim.fitbit.mapper.*;
 import org.slf4j.Logger;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.context.properties.ConfigurationProperties;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.oauth2.client.OAuth2RestOperations;
 import org.springframework.security.oauth2.client.resource.OAuth2ProtectedResourceDetails;
 import org.springframework.security.oauth2.client.resource.UserRedirectRequiredException;
-import org.springframework.security.oauth2.client.token.AccessTokenRequest;
-import org.springframework.security.oauth2.client.token.RequestEnhancer;
 import org.springframework.security.oauth2.client.token.grant.code.AuthorizationCodeAccessTokenProvider;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
-import org.springframework.util.MultiValueMap;
-import org.springframework.util.StringUtils;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.util.UriComponentsBuilder;
@@ -46,15 +40,14 @@ import org.springframework.web.util.UriComponentsBuilder;
 import java.io.IOException;
 import java.net.URI;
 import java.time.LocalDate;
-import java.time.OffsetDateTime;
-import java.time.ZoneId;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 
-import static java.util.Collections.singletonList;
+import static java.lang.String.format;
 import static org.openmhealth.shim.ShimDataResponse.result;
-import static org.openmhealth.shim.fitbit.FitbitShim.FitbitDataType.*;
+import static org.openmhealth.shim.fitbit.FitbitShim.FitbitDataType.HEART_RATE;
+import static org.openmhealth.shim.fitbit.FitbitShim.FitbitDataType.STEP_COUNT;
 import static org.slf4j.LoggerFactory.getLogger;
 import static org.springframework.http.ResponseEntity.ok;
 
@@ -65,160 +58,175 @@ import static org.springframework.http.ResponseEntity.ok;
  * @author Emerson Farrugia
  */
 @Component
-@ConfigurationProperties(prefix = "openmhealth.shim.fitbit")
-public class FitbitShim extends OAuth2ShimBase {
+public class FitbitShim extends OAuth2Shim {
 
     public static final String SHIM_KEY = "fitbit";
-
     private static final String DATA_URL = "https://api.fitbit.com";
-
-    private static final String AUTHORIZE_URL = "https://www.fitbit.com/oauth2/authorize";
-
-    private static final String TOKEN_URL = "https://api.fitbit.com/oauth2/token";
+    private static final String USER_AUTHORIZATION_URL = "https://www.fitbit.com/oauth2/authorize";
+    private static final String ACCESS_TOKEN_URL = "https://api.fitbit.com/oauth2/token";
 
     private static final Logger logger = getLogger(FitbitShim.class);
 
-    public static final List<String> FITBIT_SCOPES = Arrays.asList("activity", "heartrate", "sleep", "weight");
-
-    @Value("${openmhealth.shim.fitbit.partnerAccess:false}")
-    protected boolean partnerAccess;
+    @Autowired
+    private FitbitClientSettings fitbitClientSettings;
 
     @Autowired
-    public FitbitShim(ApplicationAccessParametersRepo applicationParametersRepo,
-            AuthorizationRequestParametersRepo authorizationRequestParametersRepo,
-            AccessParametersRepo accessParametersRepo,
-            ShimServerConfig shimServerConfig) {
-        super(applicationParametersRepo, authorizationRequestParametersRepo, accessParametersRepo, shimServerConfig);
-    }
+    private FitbitAuthorizationCodeAccessTokenProvider fitbitAuthorizationCodeAccessTokenProvider;
 
     @Override
     public String getLabel() {
+
         return "Fitbit";
     }
 
     @Override
-    public List<String> getScopes() {
-        return FITBIT_SCOPES;
-    }
-
-    @Override
     public String getShimKey() {
+
         return SHIM_KEY;
     }
 
     @Override
-    public String getBaseAuthorizeUrl() {
-        return AUTHORIZE_URL;
+    public String getUserAuthorizationUrl() {
+
+        return USER_AUTHORIZATION_URL;
     }
 
     @Override
-    public String getBaseTokenUrl() {
-        return TOKEN_URL;
+    public String getAccessTokenUrl() {
+
+        return ACCESS_TOKEN_URL;
+    }
+
+    @Override
+    protected OAuth2ClientSettings getClientSettings() {
+
+        return fitbitClientSettings;
     }
 
     @Override
     public ShimDataType[] getShimDataTypes() {
-        return values();
+
+        return FitbitDataType.values();
     }
 
     @Override
     public AuthorizationCodeAccessTokenProvider getAuthorizationCodeAccessTokenProvider() {
-        return new FitbitAuthorizationCodeAccessTokenProvider();
+
+        return fitbitAuthorizationCodeAccessTokenProvider;
     }
 
     public enum FitbitDataType implements ShimDataType {
 
-        WEIGHT("body/log/weight"),
-        SLEEP("sleep"),
         BODY_MASS_INDEX("body/log/weight"),
-        STEPS("activities/steps"),
-        ACTIVITY("activities");
+        BODY_WEIGHT("body/log/weight"),
+        HEART_RATE("activities/heart"),
+        PHYSICAL_ACTIVITY("activities"),
+        SLEEP_DURATION("sleep", "1.2"),
+        SLEEP_EPISODE("sleep", "1.2"),
+        STEP_COUNT("activities/steps");
 
-        private String endPoint;
+        private String endpoint;
+        private String version = "1";
 
-        FitbitDataType(String endPoint) {
-
-            this.endPoint = endPoint;
+        FitbitDataType(String endpoint) {
+            this.endpoint = endpoint;
         }
 
-        public String getEndPoint() {
-            return endPoint;
+        FitbitDataType(String endpoint, String version) {
+            this.endpoint = endpoint;
+            this.version = version;
         }
 
+        public String getEndpoint() {
+
+            return endpoint;
+        }
+
+        public String getVersion() {
+            return version;
+        }
     }
 
     @Override
-    protected String getAuthorizationUrl(UserRedirectRequiredException exception) {
+    protected String getAuthorizationUrl(
+            UserRedirectRequiredException exception,
+            Map<String, String> additionalParameters) {
 
         final OAuth2ProtectedResourceDetails resource = getResource();
 
-        String callbackUri = getCallbackUrl();
+        // TODO this override won't work, see FitbitAccessTokenRequestEnhancer for details
+        String redirectUrl = additionalParameters.get(REDIRECT_URL_KEY) == null
+                ? getDefaultRedirectUrl()
+                : additionalParameters.get(REDIRECT_URL_KEY);
 
         UriComponentsBuilder uriBuilder = UriComponentsBuilder
                 .fromUriString(exception.getRedirectUri())
                 .queryParam("response_type", "code")
                 .queryParam("client_id", resource.getClientId())
-                .queryParam("redirect_uri", callbackUri)
-                .queryParam("scope", StringUtils.collectionToDelimitedString(resource.getScope(), " "))
+                .queryParam("redirect_uri", redirectUrl)
+                .queryParam("scope", Joiner.on(" ").join(resource.getScope()))
                 .queryParam("state", exception.getStateKey())
-                .queryParam("prompt", "login");
+                .queryParam("prompt", fitbitClientSettings.getPromptType().getQueryParameterValue());
 
         return uriBuilder.build().encode().toUriString();
     }
 
     @Override
-    public ResponseEntity<ShimDataResponse> getData(OAuth2RestOperations restTemplate,
-            ShimDataRequest shimDataRequest) throws ShimException {
+    public ResponseEntity<ShimDataResponse> getData(
+            OAuth2RestOperations restTemplate,
+            ShimDataRequest shimDataRequest)
+            throws ShimException {
 
         FitbitDataType fitbitDataType;
 
         try {
-            fitbitDataType = valueOf(shimDataRequest.getDataTypeKey().trim().toUpperCase());
+            fitbitDataType = FitbitDataType.valueOf(shimDataRequest.getDataTypeKey().trim().toUpperCase());
         }
         catch (NullPointerException | IllegalArgumentException e) {
 
             throw new ShimException("Null or Invalid data type parameter: "
                     + shimDataRequest.getDataTypeKey()
-                    + " in shimDataRequest, cannot retrieve data.");
+                    + " in shimDataRequest, cannot retrieve data.", e);
         }
 
-        /***
-         * Setup default date parameters
-         */
-        OffsetDateTime today = LocalDate.now().atStartOfDay(ZoneId.of("Z")).toOffsetDateTime();
+        LocalDate today = LocalDate.now();
 
-        OffsetDateTime startDate = shimDataRequest.getStartDateTime() == null ?
-                today.minusDays(1) : shimDataRequest.getStartDateTime();
+        LocalDate startDate = shimDataRequest.getStartDateTime() == null
+                ? today
+                : shimDataRequest.getStartDateTime().toLocalDate();
 
-        OffsetDateTime endDate = shimDataRequest.getEndDateTime() == null ?
-                today.plusDays(1) : shimDataRequest.getEndDateTime();
-
-        OffsetDateTime currentDate = startDate;
+        LocalDate endDate = shimDataRequest.getEndDateTime() == null
+                ? today
+                : shimDataRequest.getEndDateTime().toLocalDate();
 
         if (usesDateRangeQuery(fitbitDataType)) {
 
-            return getDataForDateRange(restTemplate,
-                    startDate, endDate, fitbitDataType,
+            return getDataForDateRange(
+                    restTemplate,
+                    startDate,
+                    endDate,
+                    fitbitDataType,
                     shimDataRequest.getNormalize());
         }
         else {
-            /**
-             * Fitbit's API limits you to making a request for each given day of data for some endpoints. Thus we
-             * make a request for each day in the submitted time range and then aggregate the response based on the
-             * normalization parameter.
+            /*
+              Fitbit's API forces you to make a request for each given day of data for some endpoints. Thus we
+              make a request for each day in the submitted time range and then aggregate the response based on the
+              normalization parameter.
              */
             List<ShimDataResponse> dayResponses = new ArrayList<>();
+            LocalDate indexDate = startDate;
 
-            while (currentDate.toLocalDate().isBefore(endDate.toLocalDate()) ||
-                    currentDate.toLocalDate().isEqual(endDate.toLocalDate())) {
+            while (!indexDate.isAfter(endDate)) {
 
-                dayResponses.add(getDataForSingleDate(restTemplate, currentDate, fitbitDataType,
+                dayResponses.add(getDataForSingleDate(restTemplate, indexDate, fitbitDataType,
                         shimDataRequest.getNormalize()).getBody());
-                currentDate = currentDate.plusDays(1);
+
+                indexDate = indexDate.plusDays(1);
             }
 
-            return shimDataRequest.getNormalize() ?
-                    ok(aggregateNormalized(dayResponses))
+            return shimDataRequest.getNormalize()
+                    ? ok(aggregateNormalized(dayResponses))
                     : ok(aggregateIntoList(dayResponses));
         }
     }
@@ -230,20 +238,29 @@ public class FitbitShim extends OAuth2ShimBase {
      */
     private boolean usesDateRangeQuery(FitbitDataType fitbitDataType) {
 
-        // partnerAccess means that intraday steps will be used, which are not accessible from a ranged query
-        return fitbitDataType.equals(WEIGHT)
-                || fitbitDataType.equals(BODY_MASS_INDEX)
-                || (fitbitDataType.equals(STEPS) && !partnerAccess);
+        switch (fitbitDataType) {
+            case BODY_MASS_INDEX:
+            case BODY_WEIGHT:
+            case SLEEP_DURATION:
+            case SLEEP_EPISODE:
+                return true;
+
+            case HEART_RATE:
+            case STEP_COUNT:
+                return !fitbitClientSettings.isIntradayDataAvailable();
+        }
+
+        return false;
     }
 
     /**
-     * Each 'dayResponse', when normalized, will have a type->list[objects] for the day. So we collect each daily map
-     * to create an aggregate map of the full time range.
+     * Each 'dayResponse', when normalized, will have a type->list[objects] for the day. So we collect each daily map to
+     * create an aggregate map of the full time range.
      */
     @SuppressWarnings("unchecked")
     private ShimDataResponse aggregateNormalized(List<ShimDataResponse> dayResponses) {
 
-        if (CollectionUtils.isEmpty(dayResponses)) {
+        if (dayResponses.isEmpty()) {
             return ShimDataResponse.empty(FitbitShim.SHIM_KEY);
         }
 
@@ -254,11 +271,7 @@ public class FitbitShim extends OAuth2ShimBase {
 
                 List<DataPoint> dayList = (List<DataPoint>) dayResponse.getBody();
 
-                for (DataPoint dataPoint : dayList) {
-
-                    aggregateDataPoints.add(dataPoint);
-                }
-
+                aggregateDataPoints.addAll(dayList);
             }
         }
 
@@ -272,6 +285,7 @@ public class FitbitShim extends OAuth2ShimBase {
      * @return - Combined shim response.
      */
     private ShimDataResponse aggregateIntoList(List<ShimDataResponse> dayResponses) {
+
         if (CollectionUtils.isEmpty(dayResponses)) {
             return ShimDataResponse.empty(FitbitShim.SHIM_KEY);
         }
@@ -290,67 +304,41 @@ public class FitbitShim extends OAuth2ShimBase {
             URI requestUri,
             boolean normalize,
             FitbitDataType fitbitDataType,
-            String dateString
-    ) throws ShimException {
+            LocalDate date)
+            throws ShimException {
 
         ResponseEntity<JsonNode> responseEntity;
+
         try {
             responseEntity = restTemplate.getForEntity(requestUri, JsonNode.class);
         }
         catch (HttpClientErrorException | HttpServerErrorException e) {
-            // FIXME figure out how to handle this
-            logger.error("A request for Fitbit data failed.", e);
-            throw e;
+            // TODO figure out how to handle this
+            throw new ShimException("A request for Fitbit data has failed.", e);
         }
 
         if (normalize) {
+            FitbitDataPointMapper<?> dataPointMapper = getDataPointMapper(fitbitDataType);
 
-            FitbitDataPointMapper dataPointMapper;
+            List<? extends DataPoint<?>> dataPoints = dataPointMapper.asDataPoints(responseEntity.getBody());
 
-            switch ( fitbitDataType ) {
-                case STEPS:
-                    if (partnerAccess) {
-                        dataPointMapper = new FitbitIntradayStepCountDataPointMapper();
-                    }
-                    else {
-                        dataPointMapper = new FitbitStepCountDataPointMapper();
-                    }
-                    break;
-                case ACTIVITY:
-                    dataPointMapper = new FitbitPhysicalActivityDataPointMapper();
-                    break;
-                case WEIGHT:
-                    dataPointMapper = new FitbitBodyWeightDataPointMapper();
-                    break;
-                case SLEEP:
-                    dataPointMapper = new FitbitSleepDurationDataPointMapper();
-                    break;
-                case BODY_MASS_INDEX:
-                    dataPointMapper = new FitbitBodyMassIndexDataPointMapper();
-                    break;
-                default:
-                    throw new UnsupportedOperationException();
-            }
-
-            return ok().body(result(FitbitShim.SHIM_KEY,
-                    dataPointMapper.asDataPoints(singletonList(responseEntity.getBody()))));
-
+            return ok().body(ShimDataResponse.result(FitbitShim.SHIM_KEY, dataPoints));
         }
         else {
 
-            /**
-             * For types that only allow us to retrieve a single day at a time, Fitbit does not always provide
-             * date information since it is assumed we know what date we requested. However, this is problematic
-             * when we are aggregating multiple single date responses, so we wrap each single day Fitbit data
-             * point with date information.
+            /*
+              For types that only allow us to retrieve a single day at a time, Fitbit does not always provide
+              date information since it is assumed we know what date we requested. However, this is problematic
+              when we are aggregating multiple single date responses, so we wrap each single day Fitbit data
+              point with date information.
              */
-
             ObjectMapper objectMapper = new ObjectMapper();
 
             String jsonContent = responseEntity.getBody().toString();
 
-            if (dateString != null) {
-                jsonContent = "{\"result\": {\"date\": \"" + dateString + "\" " +
+            // TODO replace with proper wrapping
+            if (date != null) {
+                jsonContent = "{\"result\": {\"date\": \"" + date.toString() + "\" " +
                         ",\"content\": " + responseEntity.getBody().toString() + "}}";
             }
 
@@ -358,68 +346,87 @@ public class FitbitShim extends OAuth2ShimBase {
                 return ok().body(ShimDataResponse.result(FitbitShim.SHIM_KEY, objectMapper.readTree(jsonContent)));
             }
             catch (IOException e) {
-                logger.error("Data returned in Fitbit request was not valid JSON.", e);
-                throw new ShimException("Data returned in Fitbit request was not valid JSON");
+                throw new ShimException("A Fitbit response doesn't contain valid JSON.", e);
             }
         }
     }
 
+    private FitbitDataPointMapper getDataPointMapper(FitbitDataType fitbitDataType) {
+
+        Integer intradayDataGranularityInMinutes = fitbitClientSettings.getIntradayDataGranularityInMinutes();
+
+        switch (fitbitDataType) {
+            case BODY_MASS_INDEX:
+                return new FitbitBodyMassIndexDataPointMapper();
+
+            case BODY_WEIGHT:
+                return new FitbitBodyWeightDataPointMapper();
+
+            case HEART_RATE:
+                if (fitbitClientSettings.isIntradayDataAvailable()) {
+                    return new FitbitIntradayHeartRateDataPointMapper(intradayDataGranularityInMinutes);
+                }
+
+                throw new UnsupportedOperationException();
+
+            case SLEEP_DURATION:
+                return new FitbitSleepDurationDataPointMapper();
+
+            case SLEEP_EPISODE:
+                return new FitbitSleepEpisodeDataPointMapper();
+
+            case STEP_COUNT:
+                if (fitbitClientSettings.isIntradayDataAvailable()) {
+                    return new FitbitIntradayStepCountDataPointMapper(intradayDataGranularityInMinutes);
+                }
+
+                return new FitbitStepCountDataPointMapper();
+
+            case PHYSICAL_ACTIVITY:
+                return new FitbitPhysicalActivityDataPointMapper();
+        }
+
+        throw new UnsupportedOperationException();
+    }
+
     private ResponseEntity<ShimDataResponse> getDataForDateRange(OAuth2RestOperations restTemplate,
-            OffsetDateTime fromTime,
-            OffsetDateTime toTime,
-            FitbitDataType fitbitDataType,
+            LocalDate startDate,
+            LocalDate endDate,
+            FitbitDataType dataType,
             boolean normalize) throws ShimException {
 
-        String fromDateString = fromTime.toLocalDate().toString();
-        String toDateString = toTime.toLocalDate().toString();
+        URI url = UriComponentsBuilder
+                .fromUriString(DATA_URL)
+                .path("/{apiVersion}/user/-/{endpoint}/date/{baseDate}/{endDate}.json")
+                .buildAndExpand(dataType.getVersion(), dataType.getEndpoint(), startDate.toString(), endDate.toString())
+                .encode()
+                .toUri();
 
-        UriComponentsBuilder uriComponentsBuilder = UriComponentsBuilder.fromUriString(DATA_URL).
-                path("/1/user/-/{fitbitDataTypeEndpoint}/date/{fromDateString}/{toDateString}.json");
-
-        URI requestUri =
-                uriComponentsBuilder.buildAndExpand(fitbitDataType.getEndPoint(), fromDateString, toDateString).encode()
-                        .toUri();
-
-        return executeRequest(restTemplate, requestUri, normalize, fitbitDataType, null);
+        return executeRequest(restTemplate, url, normalize, dataType, null);
     }
 
-    private ResponseEntity<ShimDataResponse> getDataForSingleDate(OAuth2RestOperations restTemplate,
-            OffsetDateTime dateTime,
-            FitbitDataType fitbitDataType,
+    private ResponseEntity<ShimDataResponse> getDataForSingleDate(
+            OAuth2RestOperations restTemplate,
+            LocalDate date,
+            FitbitDataType dataType,
             boolean normalize) throws ShimException {
 
-        String dateString = dateTime.toLocalDate().toString();
+        String detailLevel = "";
 
-        UriComponentsBuilder uriComponentsBuilder = UriComponentsBuilder.fromUriString(DATA_URL).
-                path("/1/user/-/{fitbitDataTypeEndpoint}/date/{dateString}{stepTimeSeries}.json");
-
-        URI endpointUrl = uriComponentsBuilder.buildAndExpand(fitbitDataType.getEndPoint(), dateString,
-                (fitbitDataType == STEPS ? "/1d/1min" : "")).encode().toUri();
-
-        return executeRequest(restTemplate, endpointUrl, normalize, fitbitDataType, dateString);
-    }
-
-    public class FitbitAuthorizationCodeAccessTokenProvider extends AuthorizationCodeAccessTokenProvider {
-
-        public FitbitAuthorizationCodeAccessTokenProvider() {
-            this.setTokenRequestEnhancer(new FitbitTokenRequestEnhancer());
+        // TODO generalise this
+        if (fitbitClientSettings.isIntradayDataAvailable()) {
+            if (dataType == STEP_COUNT || dataType == HEART_RATE) {
+                detailLevel = format("/1d/%dmin", fitbitClientSettings.getIntradayDataGranularityInMinutes());
+            }
         }
 
-        @Override
-        protected HttpMethod getHttpMethod() {
-            return HttpMethod.POST;
-        }
-    }
+        URI url = UriComponentsBuilder
+                .fromUriString(DATA_URL)
+                .path("/{apiVersion}/user/-/{endpoint}/date/{date}{detailLevel}.json")
+                .buildAndExpand(dataType.getVersion(), dataType.getEndpoint(), date.toString(), detailLevel)
+                .encode()
+                .toUri();
 
-
-    private class FitbitTokenRequestEnhancer implements RequestEnhancer {
-
-        @Override
-        public void enhance(AccessTokenRequest request, OAuth2ProtectedResourceDetails resource,
-                MultiValueMap<String, String> form, HttpHeaders headers) {
-
-            form.set("client_id", resource.getClientId());
-            form.set("redirect_uri", getCallbackUrl());
-        }
+        return executeRequest(restTemplate, url, normalize, dataType, date);
     }
 }

@@ -38,7 +38,7 @@ public class MisfitStepCountDataPointMapperUnitTests extends DataPointMapperUnit
     @Test
     public void asDataPointsShouldReturnCorrectNumberOfDataPoints() {
 
-        List<DataPoint<StepCount>> dataPoints = mapper.asDataPoints(responseNode);
+        List<DataPoint<StepCount2>> dataPoints = mapper.asDataPoints(responseNode);
 
         assertThat(dataPoints, notNullValue());
         assertThat(dataPoints.size(), equalTo(3));
@@ -47,7 +47,7 @@ public class MisfitStepCountDataPointMapperUnitTests extends DataPointMapperUnit
     @Test
     public void asDataPointsShouldReturnCorrectDataPoints() {
 
-        List<DataPoint<StepCount>> dataPoints = mapper.asDataPoints(responseNode);
+        List<DataPoint<StepCount2>> dataPoints = mapper.asDataPoints(responseNode);
 
         assertThat(dataPoints, notNullValue());
         assertThat(dataPoints.size(), greaterThan(0));
@@ -57,11 +57,10 @@ public class MisfitStepCountDataPointMapperUnitTests extends DataPointMapperUnit
                 OffsetDateTime.of(2015, 4, 13, 0, 0, 0, 0, UTC),
                 new DurationUnitValue(DAY, 1));
 
-        StepCount stepCount = new StepCount.Builder(26370)
-                .setEffectiveTimeFrame(effectiveTimeInterval)
+        StepCount2 stepCount = new StepCount2.Builder(26370, effectiveTimeInterval)
                 .build();
 
-        DataPoint<StepCount> firstDataPoint = dataPoints.get(0);
+        DataPoint<StepCount2> firstDataPoint = dataPoints.get(0);
 
         assertThat(firstDataPoint.getBody(), equalTo(stepCount));
 

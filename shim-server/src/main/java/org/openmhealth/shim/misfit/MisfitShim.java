@@ -1,5 +1,5 @@
 /*
- * Copyright 2015 Open mHealth
+ * Copyright 2017 Open mHealth
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -12,6 +12,7 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
+ *
  */
 
 package org.openmhealth.shim.misfit;
@@ -20,13 +21,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.google.common.base.Joiner;
 import com.google.common.base.Splitter;
 import org.openmhealth.shim.*;
-import org.openmhealth.shim.misfit.mapper.MisfitDataPointMapper;
-import org.openmhealth.shim.misfit.mapper.MisfitPhysicalActivityDataPointMapper;
-import org.openmhealth.shim.misfit.mapper.MisfitSleepDurationDataPointMapper;
-import org.openmhealth.shim.misfit.mapper.MisfitStepCountDataPointMapper;
+import org.openmhealth.shim.misfit.mapper.*;
 import org.slf4j.Logger;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.oauth2.client.OAuth2RestOperations;
@@ -43,8 +40,7 @@ import org.springframework.web.util.UriComponentsBuilder;
 
 import java.time.Duration;
 import java.time.OffsetDateTime;
-import java.util.Arrays;
-import java.util.List;
+import java.util.Map;
 
 import static java.util.Collections.singletonList;
 import static org.slf4j.LoggerFactory.getLogger;
@@ -56,67 +52,64 @@ import static org.springframework.http.ResponseEntity.ok;
  * @author Emerson Farrugia
  */
 @Component
-@ConfigurationProperties(prefix = "openmhealth.shim.misfit")
-public class MisfitShim extends OAuth2ShimBase {
+public class MisfitShim extends OAuth2Shim {
 
     private static final Logger logger = getLogger(MisfitShim.class);
 
     public static final String SHIM_KEY = "misfit";
-
     private static final String DATA_URL = "https://api.misfitwearables.com/move/resource/v1/user/me";
-
-    private static final String AUTHORIZE_URL = "https://api.misfitwearables.com/auth/dialog/authorize";
-
-    private static final String TOKEN_URL = "https://api.misfitwearables.com/auth/tokens/exchange";
-
-    public static final List<String> MISFIT_SCOPES = Arrays.asList("public", "birthday", "email");
+    private static final String USER_AUTHORIZATION_URL = "https://api.misfitwearables.com/auth/dialog/authorize";
+    private static final String ACCESS_TOKEN_URL = "https://api.misfitwearables.com/auth/tokens/exchange";
 
     private static final long MAX_DURATION_IN_DAYS = 31;
 
     @Autowired
-    public MisfitShim(ApplicationAccessParametersRepo applicationParametersRepo,
-            AuthorizationRequestParametersRepo authorizationRequestParametersRepo,
-            AccessParametersRepo accessParametersRepo,
-            ShimServerConfig shimServerConfig) {
-        super(applicationParametersRepo, authorizationRequestParametersRepo, accessParametersRepo, shimServerConfig);
-    }
+    private MisfitClientSettings clientSettings;
 
     private MisfitPhysicalActivityDataPointMapper physicalActivityMapper = new MisfitPhysicalActivityDataPointMapper();
     private MisfitSleepDurationDataPointMapper sleepDurationMapper = new MisfitSleepDurationDataPointMapper();
+    private MisfitSleepEpisodeDataPointMapper sleepEpisodeMapper = new MisfitSleepEpisodeDataPointMapper();
     private MisfitStepCountDataPointMapper stepCountMapper = new MisfitStepCountDataPointMapper();
 
     @Override
     public String getLabel() {
+
         return "Misfit";
     }
 
     @Override
     public String getShimKey() {
+
         return SHIM_KEY;
     }
 
     @Override
-    public String getBaseAuthorizeUrl() {
-        return AUTHORIZE_URL;
+    public String getUserAuthorizationUrl() {
+
+        return USER_AUTHORIZATION_URL;
     }
 
     @Override
-    public String getBaseTokenUrl() {
-        return TOKEN_URL;
+    public String getAccessTokenUrl() {
+
+        return ACCESS_TOKEN_URL;
     }
 
     @Override
-    public List<String> getScopes() {
-        return MISFIT_SCOPES;
+    protected OAuth2ClientSettings getClientSettings() {
+
+        return clientSettings;
     }
 
     @Override
     public AuthorizationCodeAccessTokenProvider getAuthorizationCodeAccessTokenProvider() {
+
         return new MisfitAuthorizationCodeAccessTokenProvider();
     }
 
     @Override
     public ShimDataType[] getShimDataTypes() {
+
         return MisfitDataTypes.values();
     }
 
@@ -124,17 +117,20 @@ public class MisfitShim extends OAuth2ShimBase {
     // TODO remove this structure once endpoints are figured out
     public enum MisfitDataTypes implements ShimDataType {
 
-        SLEEP("activity/sleeps"),
-        ACTIVITIES("activity/sessions"),
-        STEPS("activity/summary");
+        PHYSICAL_ACTIVITY("activity/sessions"),
+        SLEEP_DURATION("activity/sleeps"),
+        SLEEP_EPISODE("activity/sleeps"),
+        STEP_COUNT("activity/summary");
 
         private String endPoint;
 
         MisfitDataTypes(String endPoint) {
+
             this.endPoint = endPoint;
         }
 
         public String getEndPoint() {
+
             return endPoint;
         }
     }
@@ -193,13 +189,16 @@ public class MisfitShim extends OAuth2ShimBase {
             MisfitDataPointMapper<?> dataPointMapper;
 
             switch (misfitDataType) {
-                case ACTIVITIES:
+                case PHYSICAL_ACTIVITY:
                     dataPointMapper = physicalActivityMapper;
                     break;
-                case SLEEP:
+                case SLEEP_DURATION:
                     dataPointMapper = sleepDurationMapper;
                     break;
-                case STEPS:
+                case SLEEP_EPISODE:
+                    dataPointMapper = sleepEpisodeMapper;
+                    break;
+                case STEP_COUNT:
                     dataPointMapper = stepCountMapper;
                     break;
                 default:
@@ -215,7 +214,7 @@ public class MisfitShim extends OAuth2ShimBase {
     }
 
     @Override
-    protected String getAuthorizationUrl(UserRedirectRequiredException exception) {
+    protected String getAuthorizationUrl(UserRedirectRequiredException exception, Map<String, String> addlParameters) {
 
         final OAuth2ProtectedResourceDetails resource = getResource();
 
@@ -225,7 +224,7 @@ public class MisfitShim extends OAuth2ShimBase {
                 .queryParam("client_id", resource.getClientId())
                 .queryParam("response_type", "code")
                 .queryParam("scope", Joiner.on(',').join(resource.getScope()))
-                .queryParam("redirect_uri", getCallbackUrl());
+                .queryParam("redirect_uri", getDefaultRedirectUrl());
 
         return uriBuilder.build().encode().toUriString();
     }
@@ -236,6 +235,7 @@ public class MisfitShim extends OAuth2ShimBase {
     public class MisfitAuthorizationCodeAccessTokenProvider extends AuthorizationCodeAccessTokenProvider {
 
         public MisfitAuthorizationCodeAccessTokenProvider() {
+
             this.setTokenRequestEnhancer(new MisfitTokenRequestEnhancer());
         }
     }
@@ -252,7 +252,7 @@ public class MisfitShim extends OAuth2ShimBase {
 
             form.set("client_id", resource.getClientId());
             form.set("client_secret", resource.getClientSecret());
-            form.set("redirect_uri", getCallbackUrl());
+            form.set("redirect_uri", getDefaultRedirectUrl());
         }
     }
 }

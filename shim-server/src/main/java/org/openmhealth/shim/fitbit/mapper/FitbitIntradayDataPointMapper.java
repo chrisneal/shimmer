@@ -19,27 +19,39 @@ package org.openmhealth.shim.fitbit.mapper;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.google.common.collect.Lists;
 import org.openmhealth.schema.domain.omh.DataPoint;
+import org.openmhealth.schema.domain.omh.DurationUnitValue;
 import org.openmhealth.schema.domain.omh.SchemaSupport;
+import org.openmhealth.schema.domain.omh.TimeFrame;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.OffsetDateTime;
 import java.util.List;
-import java.util.Optional;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
-import static org.openmhealth.shim.common.mapper.JsonNodeMappingSupport.asOptionalLocalDate;
-import static org.openmhealth.shim.common.mapper.JsonNodeMappingSupport.asRequiredNode;
+import static org.openmhealth.schema.domain.omh.DurationUnit.MINUTE;
+import static org.openmhealth.schema.domain.omh.TimeInterval.ofStartDateTimeAndDuration;
+import static org.openmhealth.shim.common.mapper.JsonNodeMappingSupport.*;
 
 
 /**
  * TODO add Javadoc
  *
  * @author Chris Schaefbauer
+ * @author Emerson Farrugia
  */
 public abstract class FitbitIntradayDataPointMapper<T extends SchemaSupport> extends FitbitDataPointMapper<T> {
 
     // FIXME this shared state is a critical section if the mapper is reused
     private JsonNode responseNode;
+    private Integer intradayDataGranularityInMinutes;
+
+
+    public FitbitIntradayDataPointMapper(Integer intradayDataGranularityInMinutes) {
+        this.intradayDataGranularityInMinutes = intradayDataGranularityInMinutes;
+    }
 
     @Override
     public List<DataPoint<T>> asDataPoints(List<JsonNode> responseNodes) {
@@ -59,19 +71,50 @@ public abstract class FitbitIntradayDataPointMapper<T extends SchemaSupport> ext
     }
 
     /**
-     * Allows specific intraday activity measure mappers to access the date that the datapoint occured, which is stored
-     * outside the individual list nodes
+     * @return the effective date of an intraday response
      */
-    // TODO discuss naming
-    public Optional<LocalDate> getDateFromSummaryForDay() {
+    public LocalDate getEffectiveDate() {
 
-        JsonNode summaryForDayNode = asRequiredNode(responseNode, getSummaryForDayNodeName()).get(0);
-        return asOptionalLocalDate(summaryForDayNode, "dateTime");
+        JsonNode dateSummaryNode = asRequiredNode(responseNode, getDateSummaryNodeName()).get(0);
+
+        return asRequiredLocalDate(dateSummaryNode, "dateTime");
     }
 
     /**
-     * @return the name of the summary list node which contains a data point with the dateTime field
+     * @param timeSeriesEntryNode an entry node from an intraday time series
+     * @return the effective start date time
      */
-    // TODO discuss naming
-    public abstract String getSummaryForDayNodeName();
+    protected OffsetDateTime getTimeSeriesEntryEffectiveStartDateTime(JsonNode timeSeriesEntryNode) {
+
+        LocalDate effectiveDate = getEffectiveDate();
+        LocalTime effectiveStartDateTime = asRequiredLocalTime(timeSeriesEntryNode, "time");
+
+        return asOffsetDateTimeWithFakeUtcTimeZone(LocalDateTime.of(effectiveDate, effectiveStartDateTime));
+    }
+
+    /**
+     * @param timeSeriesEntryNode an entry node from an intraday time series
+     * @return an identifier that is unique to the specific time series entry, based on its effective time frame. This
+     * identifier isn't unique across users or data types.
+     */
+    protected Long getTimeSeriesEntryExternalId(JsonNode timeSeriesEntryNode) {
+
+        return getTimeSeriesEntryEffectiveStartDateTime(timeSeriesEntryNode).toEpochSecond();
+    }
+
+    /**
+     * @param timeSeriesEntryNode an entry node from an intraday time series
+     * @return the effective time frame
+     */
+    protected TimeFrame getTimeSeriesEntryEffectiveTimeFrame(JsonNode timeSeriesEntryNode) {
+
+        return new TimeFrame(ofStartDateTimeAndDuration(
+                getTimeSeriesEntryEffectiveStartDateTime(timeSeriesEntryNode),
+                new DurationUnitValue(MINUTE, intradayDataGranularityInMinutes)));
+    }
+
+    /**
+     * @return the name of the node which contains a summary for the requested date
+     */
+    public abstract String getDateSummaryNodeName();
 }
