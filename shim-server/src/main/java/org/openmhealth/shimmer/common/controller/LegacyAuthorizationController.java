@@ -183,18 +183,6 @@ public class LegacyAuthorizationController {
             return badRequest().build();
         }
 
-<<<<<<< HEAD
-            String authorizationFailureUrl = System.getenv("AUTH_FAILURE_URL");
-            String authorizationSuccessUrl = System.getenv("AUTH_SUCCESS_URL");
-
-            String authorizationStatusURL = (authorizationFailureUrl != ""?authorizationFailureUrl:shimServerProperties.getCallbackUrlBase() + AUTH_FAILURE_URL);
-            if (response.getType().equals(AuthorizationResponse.Type.AUTHORIZED)) {
-                authorizationStatusURL = (authorizationSuccessUrl != ""?authorizationSuccessUrl:shimServerProperties.getCallbackUrlBase() + AUTH_SUCCESS_URL);
-            }
-
-            try{
-                servletResponse.sendRedirect(authorizationStatusURL);
-=======
         setPassThroughAuthentication(authParams.getUsername(), shimKey);
 
         AuthorizationResponse response =
@@ -229,7 +217,6 @@ public class LegacyAuthorizationController {
         if (authParams.getClientRedirectUrl() != null) {
             try {
                 servletResponse.sendRedirect(authParams.getClientRedirectUrl());
->>>>>>> 0c4c3e49dabe656c635cc30a3963104e5e89ee26
             }
             catch (IOException e) {
                 e.printStackTrace();
