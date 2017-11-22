@@ -37,8 +37,8 @@ public class DeploymentSettings {
      * @return the base of the URL that data providers redirect user-agents to after an authorization
      */
     public String getDataProviderRedirectBaseUrl() {
-
-        return dataProviderRedirectBaseUrl;
+        return System.getenv("OPENMHEALTH_SHIMMER_DATAPROVIDERREDIRECTBASEURL");
+        // return dataProviderRedirectBaseUrl;
     }
 
     public void setDataProviderRedirectBaseUrl(String dataProviderRedirectBaseUrl) {

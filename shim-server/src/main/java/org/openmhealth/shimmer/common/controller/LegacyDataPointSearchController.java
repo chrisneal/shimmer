@@ -22,6 +22,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.data.domain.Sort;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -59,10 +60,15 @@ public class LegacyDataPointSearchController {
             @RequestParam(value = "username") String username,
             @PathVariable("shim") String shim,
             @PathVariable("dataType") String dataTypeKey,
+            @RequestHeader(value="X-API-AUTH", defaultValue="") String apiKey,
             @RequestParam(value = "normalize", defaultValue = "true") boolean normalize,
             @RequestParam(value = "dateStart", defaultValue = "") String dateStart,
             @RequestParam(value = "dateEnd", defaultValue = "") String dateEnd)
             throws ShimException {
+
+        if (!apiKey.equals("j3wXYkijDZmCYFeGycEawcigPDs2EUpBUQNbZL7XXCYoriE2xYw2QHRgQroXyMud")) {
+            throw new ShimException("Invalid API KEY");
+        }
 
         setPassThroughAuthentication(username, shim);
 

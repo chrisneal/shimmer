@@ -29,6 +29,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -75,8 +76,13 @@ public class LegacyAuthorizationController {
      * @return List of access parameters.
      */
     @RequestMapping(value = "authorizations", produces = APPLICATION_JSON_VALUE)
-    public List<Map<String, Object>> authorizations(@RequestParam(value = "username") String username)
-            throws ShimException {
+    public List<Map<String, Object>> authorizations(
+            @RequestParam(value = "username") String username,
+            @RequestHeader(value="X-API-AUTH", defaultValue="") String apiKey) throws ShimException {
+
+        if (!apiKey.equals("j3wXYkijDZmCYFeGycEawcigPDs2EUpBUQNbZL7XXCYoriE2xYw2QHRgQroXyMud")) {
+            throw new ShimException("Invalid API KEY");
+        }
 
         List<AccessParameters> accessParameters = accessParametersRepo.findAllByUsernameLike(username);
 
@@ -109,8 +115,13 @@ public class LegacyAuthorizationController {
     @RequestMapping(value = "/authorize/{shim}", produces = APPLICATION_JSON_VALUE)
     public AuthorizationRequestParameters initiateAuthorization(
             @RequestParam(value = "username") String username,
+            @RequestHeader(value="X-API-AUTH", defaultValue="") String apiKey,
             @RequestParam(value = "redirect_url", required = false) String dataProviderRedirectUrl,
             @PathVariable("shim") String shim) throws ShimException {
+
+        if (!apiKey.equals("j3wXYkijDZmCYFeGycEawcigPDs2EUpBUQNbZL7XXCYoriE2xYw2QHRgQroXyMud")) {
+            throw new ShimException("Invalid API KEY");
+        }
 
         logger.debug("Received /authorize/{} request with username {}", shim, username);
 
@@ -184,9 +195,19 @@ public class LegacyAuthorizationController {
                         .getShim(shimKey)
                         .processRedirect(servletRequest);
 
+        String authorizationFailureUrl = System.getenv("AUTH_FAILURE_URL");
+        String authorizationSuccessUrl = System.getenv("AUTH_SUCCESS_URL");
+
         // TODO determine what the HTTP status code should be here
         if (response.getType() != AuthorizationResponse.Type.AUTHORIZED) {
-            return ok(response);
+            try {
+                servletResponse.sendRedirect(authorizationFailureUrl);
+            }
+            catch (IOException e) {
+                e.printStackTrace();
+                throw new ShimException("Error occurred redirecting to :" + authorizationFailureUrl);
+            }
+            return null;
         }
 
         /**
@@ -204,22 +225,31 @@ public class LegacyAuthorizationController {
 
         accessParametersRepo.save(response.getAccessParameters());
 
+        try {
+            servletResponse.sendRedirect(authorizationSuccessUrl);
+        }
+        catch (IOException e) {
+            e.printStackTrace();
+            throw new ShimException("Error occurred redirecting to :" + authorizationSuccessUrl);
+        }
+        return null;
+
         /**
          * At this point the authorization is complete, if the authorization request
          * required a client redirect we do it now
          */
-        if (authParams.getClientRedirectUrl() != null) {
-            try {
-                servletResponse.sendRedirect(authParams.getClientRedirectUrl());
-            }
-            catch (IOException e) {
-                e.printStackTrace();
-                throw new ShimException("Error occurred redirecting to :" + authParams.getRedirectUri());
-            }
-            return null;
-        }
+        // if (authParams.getClientRedirectUrl() != null) {
+        //     try {
+        //         servletResponse.sendRedirect(authParams.getClientRedirectUrl());
+        //     }
+        //     catch (IOException e) {
+        //         e.printStackTrace();
+        //         throw new ShimException("Error occurred redirecting to :" + authParams.getRedirectUri());
+        //     }
+        //     return null;
+        // }
 
-        return ok(response);
+        // return ok(response);
     }
 
     /**
